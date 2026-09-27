@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ app_title }} — {{ app_subtitle }}</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♻️</text></svg>">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+        <div class="container nav-container">
+            <a href="/" class="brand">
+                <span class="brand-icon">♻️</span>
+                <div class="brand-text">
+                    <span class="brand-title">AI Smart Waste</span>
+                    <span class="brand-tag">Deep Learning Vision System</span>
+                </div>
+            </a>
+
+            <nav class="nav-links">
+                <a href="#scanner-section" class="nav-link active">Live AI Scanner</a>
+                <a href="#dashboard-section" class="nav-link">Live Stats</a>
+                <a href="#how-it-works" class="nav-link">How It Works</a>
+                <a href="#about-model" class="nav-link">About Model</a>
+                <a href="/analytics" class="nav-link nav-analytics-btn">📊 View Analytics</a>
+                <a href="/docs" target="_blank" rel="noopener" class="nav-link nav-docs-link">⚡ API /docs</a>
+            </nav>
+
+            <div class="status-pills">
+                <div class="status-pill" id="nav-camera-status" title="Webcam Status">
+                    <span class="dot dot-idle" id="camera-status-dot"></span>
+                    <span id="camera-status-text">Camera: Idle</span>
+                </div>
+                <div class="status-pill {% if model_info.is_demo_mode %}pill-warning{% else %}pill-success{% endif %}" id="nav-model-status" title="{{ model_info.model_name }}">
+                    <span class="dot {% if model_info.is_demo_mode %}dot-warning{% else %}dot-active{% endif %}"></span>
+                    <span>{% if model_info.is_demo_mode %}Demo Mode{% else %}AI Model Ready{% endif %}</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="container hero-grid">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <span>🌿 Computer Vision + FastAPI + Deep Learning</span>
+                </div>
+                <h1 class="hero-title">♻️ AI Smart Waste Management</h1>
+                <p class="hero-subtitle">Real-Time Waste Classification Using Deep Learning</p>
+                <p class="hero-description">
+                    Identify waste in real time using computer vision and deep learning. Point your webcam at any waste item to classify it into <strong>Plastic, Paper, Metal, Glass, Organic, or General Waste</strong> and receive instant smart bin disposal guidance.
+                </p>
+                <div class="hero-actions">
+                    <button id="hero-start-camera-btn" class="btn btn-primary btn-lg">
+                        <span class="btn-icon">📷</span> Start AI Camera
+                    </button>
+                    <a href="/analytics" class="btn btn-secondary btn-lg">
+                        <span class="btn-icon">📊</span> View Analytics
+                    </a>
+                </div>
+                <div class="hero-meta">
+                    <span>✔ 100% Local Privacy</span>
+                    <span>✔ CPU-Optimized ({{ model_info.input_size[0] }}×{{ model_info.input_size[1] }}px)</span>
+                    <span>✔ Auto SQLite Logging</span>
+                </div>
+            </div>
+
+            <div class="hero-bins-showcase">
+                <div class="showcase-header">
+                    <span>Supported Smart Recycling Bins</span>
+                    <span class="showcase-sub">6 Categories</span>
+                </div>
+                <div class="mini-bins-grid">
+                    {% for rule in waste_rules %}
+                    <div class="mini-bin-card" style="--bin-accent: {{ rule.bin_color }};">
+                        <span class="mini-bin-icon">{{ rule.icon }}</span>
+                        <div class="mini-bin-info">
+                            <strong>{{ rule.category }}</strong>
+                            <small>{{ rule.bin_short }}</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Demo Mode Banner (Only visible if running in fallback mode) -->
+    {% if model_info.is_demo_mode %}
+    <div class="container">
+        <div class="alert alert-warning">
+            <strong>ℹ️ Demo / Fallback Mode Active:</strong>
+            Running with OpenCV Material Feature Analyzer because no custom trained model file was found at <code>{{ model_info.custom_model_path }}</code>. Predictions are clearly labeled as fallback results.
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Main Real-Time Camera & AI Prediction Section -->
+    <main class="container main-section" id="scanner-section">
+        <div class="section-header">
+            <div>
+                <h2>🎥 Real-Time AI Waste Scanner</h2>
+                <p>Position an item in the center frame. Frames are analyzed automatically at a controlled interval.</p>
+            </div>
+            <div class="scanner-controls-bar">
+                <label for="interval-select" class="control-label">Scan Interval:</label>
+                <select id="interval-select" class="select-input">
+                    <option value="800">Fast (0.8s)</option>
+                    <option value="1200" selected>Balanced (1.2s)</option>
+                    <option value="2000">Eco (2.0s)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="scanner-grid">
+            <!-- Left Column: Live Webcam Feed Card -->
+            <div class="card camera-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">📹</span>
+                        <h3>Live Webcam Feed</h3>
+                    </div>
+                    <span class="badge badge-neutral" id="fps-badge">Standby</span>
+                </div>
+
+                <!-- Camera Viewport -->
+                <div class="camera-viewport" id="camera-viewport">
+                    <video id="webcam-video" autoplay playsinline muted></video>
+                    <canvas id="capture-canvas" width="224" height="224" style="display: none;"></canvas>
+                    <img id="uploaded-preview" alt="Uploaded waste preview" style="display: none;" />
+
+                    <!-- Scanning Reticle Overlay -->
+                    <div class="scan-overlay" id="scan-overlay">
+                        <div class="scan-reticle">
+                            <div class="corner tl"></div>
+                            <div class="corner tr"></div>
+                            <div class="corner bl"></div>
+                            <div class="corner br"></div>
+                            <div class="scan-laser" id="scan-laser"></div>
+                        </div>
+                        <span class="reticle-hint" id="reticle-hint">Center waste item inside frame</span>
+                    </div>
+
+                    <!-- Placeholder shown when camera is off -->
+                    <div class="camera-placeholder" id="camera-placeholder">
+                        <div class="placeholder-icon">📷</div>
+                        <h4>Camera is Currently Off</h4>
+                        <p>Click <strong>"Start Camera"</strong> below to allow webcam access and begin real-time AI waste recognition.</p>
+                        <button id="placeholder-start-btn" class="btn btn-primary">
+                            Start Camera Now
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Friendly Error Banner (hidden by default) -->
+                <div class="camera-error-box" id="camera-error-box" style="display: none;">
+                    <span class="error-icon">⚠️</span>
+                    <div class="error-text">
+                        <strong id="camera-error-title">Camera Access Error</strong>
+                        <p id="camera-error-msg">Camera permission was denied. Please allow camera access in your browser settings or use the image upload / sample test buttons below.</p>
+                    </div>
+                </div>
+
+                <!-- Primary Camera Action Buttons -->
+                <div class="camera-actions">
+                    <button id="start-camera-btn" class="btn btn-success">
+                        <span>▶</span> Start Camera
+                    </button>
+                    <button id="stop-camera-btn" class="btn btn-danger" disabled>
+                        <span>⏹</span> Stop Camera
+                    </button>
+                    <button id="capture-once-btn" class="btn btn-outline" disabled title="Capture and log immediate snapshot">
+                        <span>📸</span> Snap Now
+                    </button>
+                    <label for="image-upload-input" class="btn btn-outline upload-btn-label" title="Upload an image file from disk">
+                        <span>📁</span> Upload Photo
+                        <input type="file" id="image-upload-input" accept="image/*" style="display: none;" />
+                    </label>
+                </div>
+
+                <!-- Classroom / Workshop Sample Simulation Bar -->
+                <div class="demo-presets-box">
+                    <div class="demo-presets-header">
+                        <span>🧪 <strong>Workshop Quick Test Samples</strong> (Simulate item or test without webcam):</span>
+                    </div>
+                    <div class="demo-presets-buttons">
+                        <button class="preset-btn" data-category="Plastic">♻️ Plastic Bottle</button>
+                        <button class="preset-btn" data-category="Paper">📄 Paper Sheet</button>
+                        <button class="preset-btn" data-category="Metal">🥫 Soda Can</button>
+                        <button class="preset-btn" data-category="Glass">🍾 Glass Jar</button>
+                        <button class="preset-btn" data-category="Organic">🌱 Fruit Peel</button>
+                        <button class="preset-btn" data-category="General Waste">🗑️ Wrapper</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: AI Prediction & Smart Bin Recommendation Card -->
+            <div class="card prediction-card" id="prediction-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">🧠</span>
+                        <h3>Live AI Classification Result</h3>
+                    </div>
+                    <span class="badge badge-info" id="db-log-badge">Waiting for input</span>
+                </div>
+
+                <!-- Main Prediction Display -->
+                <div class="prediction-main" id="prediction-main">
+                    <div class="predicted-category-banner" id="predicted-banner" style="--active-color: #10b981;">
+                        <div class="pred-icon-circle" id="pred-icon">♻️</div>
+                        <div class="pred-title-area">
+                            <span class="pred-label">DETECTED WASTE CATEGORY</span>
+                            <h2 class="pred-category-name" id="pred-category">Ready to Scan</h2>
+                            <span class="pred-object-sub" id="pred-object-sub">Point camera at waste item</span>
+                        </div>
+                        <div class="pred-confidence-box">
+                            <span class="conf-number" id="pred-confidence">--%</span>
+                            <span class="conf-label">Confidence</span>
+                        </div>
+                    </div>
+
+                    <!-- Confidence Progress Bar -->
+                    <div class="confidence-meter-wrap">
+                        <div class="confidence-meter-labels">
+                            <span>AI Confidence Level</span>
+                            <span id="confidence-status-text">Threshold: {{ model_info.confidence_threshold|round(0)|int }}%</span>
+                        </div>
+                        <div class="confidence-bar-track">
+                            <div class="confidence-bar-fill" id="confidence-bar-fill" style="width: 0%;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Uncertain / Low Confidence Warning -->
+                    <div class="low-confidence-alert" id="low-confidence-alert" style="display: none;">
+                        <span>⚠️</span>
+                        <span id="low-confidence-text">Uncertain prediction — please show the object more clearly in good lighting.</span>
+                    </div>
+
+                    <!-- Smart Bin Recommendation Box -->
+                    <div class="smart-bin-recommendation" id="smart-bin-box">
+                        <div class="bin-rec-header">
+                            <span class="bin-rec-tag">RECOMMENDED DISPOSAL BIN</span>
+                        </div>
+                        <div class="bin-rec-body">
+                            <div class="bin-visual-icon" id="rec-bin-icon">🗑️</div>
+                            <div class="bin-rec-details">
+                                <h4 id="rec-bin-name">Select or Scan an Item</h4>
+                                <p id="rec-instruction" class="rec-instruction">
+                                    Start the camera or choose a test sample to see real-time disposal instructions.
+                                </p>
+                            </div>
+                        </div>
+                        <div class="eco-tip-strip" id="eco-tip-strip">
+                            <span>🌱 <strong>Eco Fact:</strong></span>
+                            <span id="rec-eco-tip">Proper waste segregation increases recycling efficiency by over 60%.</span>
+                        </div>
+                    </div>
+
+                    <!-- Live 6-Class Probability Breakdown -->
+                    <div class="class-probabilities-section">
+                        <h4>Live Class Probability Breakdown</h4>
+                        <div class="prob-bars-list" id="prob-bars-list">
+                            {% for rule in waste_rules %}
+                            <div class="prob-row" data-cat="{{ rule.category }}">
+                                <div class="prob-row-label">
+                                    <span>{{ rule.icon }} {{ rule.category }}</span>
+                                    <span class="prob-pct-val" id="prob-val-{{ rule.category|replace(' ', '-') }}">0.0%</span>
+                                </div>
+                                <div class="prob-row-track">
+                                    <div class="prob-row-fill" id="prob-fill-{{ rule.category|replace(' ', '-') }}"
+                                         style="width: 0%; background-color: {{ rule.bin_color }};"></div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Live Detection Counter Dashboard Section -->
+    <section class="container dashboard-section" id="dashboard-section">
+        <div class="section-header">
+            <div>
+                <h2>📊 Live Detection Statistics</h2>
+                <p>Real-time waste classification counters persisted in local SQLite database (with {{ model_info.debounce_seconds|default(5.0) }}s duplicate debouncing).</p>
+            </div>
+            <div class="section-actions">
+                <button id="refresh-stats-btn" class="btn btn-outline btn-sm">🔄 Refresh</button>
+                <button id="clear-db-btn" class="btn btn-danger-outline btn-sm">🗑️ Reset Counters</button>
+            </div>
+        </div>
+
+        <!-- 7 Counter Cards (Total + 6 Categories) -->
+        <div class="stats-cards-grid">
+            <div class="stat-card stat-card-total">
+                <div class="stat-card-top">
+                    <span class="stat-title">Total Detections</span>
+                    <span class="stat-emoji">📈</span>
+                </div>
+                <div class="stat-value" id="stat-total">{{ stats.total_detections }}</div>
+                <div class="stat-footer">
+                    <span>Today: <strong id="stat-today">{{ stats.today_detections }}</strong></span>
+                </div>
+            </div>
+
+            {% for rule in waste_rules %}
+            <div class="stat-card" style="--card-accent: {{ rule.bin_color }};">
+                <div class="stat-card-top">
+                    <span class="stat-title">{{ rule.category }}</span>
+                    <span class="stat-emoji">{{ rule.icon }}</span>
+                </div>
+                <div class="stat-value" id="stat-count-{{ rule.category|replace(' ', '-') }}">
+                    {{ stats.category_counts.get(rule.category, 0) }}
+                </div>
+                <div class="stat-footer">
+                    <span>{{ rule.bin_short }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Recent Detections Table -->
+        <div class="card recent-table-card">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="card-icon">🕒</span>
+                    <h3>Recent Detections Log</h3>
+                </div>
+                <a href="/analytics" class="link-btn">View Full Analytics & Charts →</a>
+            </div>
+
+            <div class="table-responsive">
+                <table class="detections-table">
+                    <thead>
+                        <tr>
+                            <th>Time</th>
+                            <th>Waste Type</th>
+                            <th>Confidence</th>
+                            <th>Recommended Bin</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recent-detections-tbody">
+                        {% if recent_detections %}
+                            {% for item in recent_detections %}
+                            <tr>
+                                <td class="td-time">{{ item.timestamp.split('T')[-1] if 'T' in item.timestamp else item.timestamp }}</td>
+                                <td><span class="category-pill" data-category="{{ item.waste_type }}">{{ item.waste_type }}</span></td>
+                                <td><strong>{{ item.confidence }}%</strong></td>
+                                <td>{{ item.recommended_bin }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr id="empty-detections-row">
+                                <td colspan="4" class="empty-table-msg">
+                                    No detections recorded yet. Start the camera or click a quick test sample above!
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works Section -->
+    <section class="container info-section" id="how-it-works">
+        <div class="section-header centered">
+            <h2>⚙️ How It Works</h2>
+            <p>End-to-end automated pipeline from live webcam capture to smart recycling guidance.</p>
+        </div>
+
+        <div class="steps-grid">
+            <div class="step-card">
+                <div class="step-number">1</div>
+                <div class="step-icon">📷</div>
+                <h4>Start Camera</h4>
+                <p>Browser requests webcam access via HTML5 MediaDevices API and streams live video locally without freezing the UI.</p>
+            </div>
+            <div class="step-card">
+                <div class="step-number">2</div>
+                <div class="step-icon">🧠</div>
+                <h4>AI Analyzes Waste</h4>
+                <p>Frames are resized to 224×224px and processed by FastAPI using our CPU-optimized MobileNetV2 & OpenCV vision pipeline.</p>
+            </div>
+            <div class="step-card">
+                <div class="step-number">3</div>
+                <div class="step-icon">🏷️</div>
+                <h4>Waste Is Classified</h4>
+                <p>The model predicts probabilities across 6 categories (Plastic, Paper, Metal, Glass, Organic, General Waste).</p>
+            </div>
+            <div class="step-card">
+                <div class="step-number">4</div>
+                <div class="step-icon">♻️</div>
+                <h4>Correct Bin Is Recommended</h4>
+                <p>The smart rule engine maps the item to its colour-coded bin, displays disposal instructions, and logs to SQLite.</p>
+            </div>
+        </div>
+
+        <!-- 6 Core Feature Cards -->
+        <div class="features-grid">
+            <div class="feature-card">
+                <span class="feature-icon">⚡</span>
+                <h4>Real-Time Detection</h4>
+                <p>Continuous throttled frame capture processes live video smoothly on any standard student laptop without needing a dedicated GPU.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🗑️</span>
+                <h4>Smart Bin Recommendation</h4>
+                <p>Dedicated rule engine maps every prediction to colour-coded recycling bins with practical disposal instructions and eco facts.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">📊</span>
+                <h4>AI Analytics</h4>
+                <p>Live counters, category distribution charts, today's activity metrics, and historical detection logs updated dynamically.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🚀</span>
+                <h4>FastAPI Backend</h4>
+                <p>High-performance asynchronous Python REST API with Pydantic validation and interactive Swagger documentation at <code>/docs</code>.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">🔬</span>
+                <h4>Deep Learning + OpenCV</h4>
+                <p>Combines lightweight MobileNetV2 convolutional neural network features with OpenCV material reflectance and colour analysis.</p>
+            </div>
+            <div class="feature-card">
+                <span class="feature-icon">💾</span>
+                <h4>Local SQLite Storage</h4>
+                <p>Zero-configuration local relational database with automatic schema initialization and intelligent duplicate frame debouncing.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Workshop Presentation Support: About Model & Concepts -->
+    <section class="container about-section" id="about-model">
+        <div class="section-header centered">
+            <h2>🎓 Workshop Guide: About the AI & Architecture</h2>
+            <p>Clear explanations of the core technologies powering this project for student demonstrations.</p>
+        </div>
+
+        <div class="about-grid">
+            <div class="about-card">
+                <h4>🤖 What is Deep Learning?</h4>
+                <p>
+                    <strong>Deep Learning</strong> is a subset of Machine Learning based on artificial neural networks with multiple layers. In computer vision, <strong>Convolutional Neural Networks (CNNs)</strong> like <em>MobileNetV2</em> automatically learn visual hierarchy—from simple edges and textures in early layers to complex shapes like bottles, cans, and fruit in deeper layers.
+                </p>
+            </div>
+            <div class="about-card">
+                <h4>🖼️ What is Image Classification?</h4>
+                <p>
+                    <strong>Image Classification</strong> is the computer vision task of taking an input image (a grid of RGB pixels, resized here to <code>224×224</code>) and outputting a probability distribution over predefined categories. The category with the highest probability score becomes the predicted waste type.
+                </p>
+            </div>
+            <div class="about-card">
+                <h4>⚡ What is FastAPI?</h4>
+                <p>
+                    <strong>FastAPI</strong> is a modern, high-performance Python web framework for building APIs. It uses Python type hints and <strong>Pydantic</strong> to automatically validate data, serialize JSON responses, and generate interactive OpenAPI documentation at <a href="/docs" target="_blank">/docs</a>.
+                </p>
+            </div>
+            <div class="about-card">
+                <h4>🔄 How Does Real-Time Detection Work?</h4>
+                <p>
+                    Instead of sending 60 frames per second (which would overload a laptop CPU), the browser captures a lightweight JPEG snapshot every ~1.2 seconds via an HTML5 <code>&lt;canvas&gt;</code>, sends it to <code>POST /api/predict</code>, displays the result immediately, and applies a <strong>5-second debounce filter</strong> before writing to SQLite.
+                </p>
+            </div>
+        </div>
+
+        <!-- Live Model Technical Spec Card -->
+        <div class="card model-specs-card">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="card-icon">🛠️</span>
+                    <h3>Active AI Model Specifications</h3>
+                </div>
+                <span class="badge {% if model_info.is_demo_mode %}badge-warning{% else %}badge-success{% endif %}">
+                    {{ model_info.mode|upper }}
+                </span>
+            </div>
+            <div class="specs-grid">
+                <div class="spec-item">
+                    <span class="spec-label">Active Model Name</span>
+                    <strong class="spec-val">{{ model_info.model_name }}</strong>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">Architecture</span>
+                    <strong class="spec-val">{{ model_info.architecture }}</strong>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">Execution Engine</span>
+                    <strong class="spec-val">{{ model_info.framework }} ({{ model_info.device }})</strong>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">Input Resolution</span>
+                    <strong class="spec-val">{{ model_info.input_size[0] }} × {{ model_info.input_size[1] }} RGB</strong>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">Confidence Threshold</span>
+                    <strong class="spec-val">{{ model_info.confidence_threshold }}%</strong>
+                </div>
+                <div class="spec-item">
+                    <span class="spec-label">Supported Classes (6)</span>
+                    <strong class="spec-val">{{ model_info.supported_categories|join(', ') }}</strong>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container footer-content">
+            <div>
+                <strong>♻️ AI Smart Waste Management System</strong>
+                <p>Built with Python, FastAPI, Deep Learning (MobileNetV2), OpenCV, and SQLite. All camera processing runs locally.</p>
+            </div>
+            <div class="footer-links">
+                <a href="/">Live Scanner</a>
+                <a href="/analytics">Analytics</a>
+                <a href="/docs" target="_blank">Swagger API Docs</a>
+                <a href="/health" target="_blank">System Health</a>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        window.APP_CONFIG = {
+            captureIntervalMs: {{ capture_interval_ms|default(1200) }},
+            confidenceThreshold: {{ model_info.confidence_threshold|default(55.0) }}
+        };
+    </script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

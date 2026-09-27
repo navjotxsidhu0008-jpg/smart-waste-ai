@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Waste Analytics — {{ app_title }}</title>
+    <link rel="stylesheet" href="/static/css/style.css" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>♻️</text></svg>">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <header class="navbar">
+        <div class="container nav-container">
+            <a href="/" class="brand">
+                <span class="brand-icon">♻️</span>
+                <div class="brand-text">
+                    <span class="brand-title">AI Smart Waste</span>
+                    <span class="brand-tag">Analytics & Database Insights</span>
+                </div>
+            </a>
+
+            <nav class="nav-links">
+                <a href="/" class="nav-link">🎥 Live AI Scanner</a>
+                <a href="/analytics" class="nav-link active">📊 Analytics Dashboard</a>
+                <a href="/#about-model" class="nav-link">🎓 About Model</a>
+                <a href="/docs" target="_blank" rel="noopener" class="nav-link nav-docs-link">⚡ API /docs</a>
+            </nav>
+
+            <div class="status-pills">
+                <a href="/" class="btn btn-primary btn-sm">📷 Back to Camera</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- Analytics Header -->
+    <section class="analytics-hero">
+        <div class="container analytics-hero-inner">
+            <div>
+                <span class="hero-badge">📊 Real-Time SQLite Database Telemetry</span>
+                <h1>Waste Classification Analytics</h1>
+                <p>Live statistical breakdown of detected waste categories, recycling distribution, and historical detection logs.</p>
+            </div>
+            <div class="analytics-actions">
+                <button id="analytics-refresh-btn" class="btn btn-primary">
+                    <span>🔄</span> Refresh Data
+                </button>
+                <button id="analytics-export-btn" class="btn btn-outline">
+                    <span>📥</span> Export CSV
+                </button>
+                <button id="analytics-clear-btn" class="btn btn-danger-outline">
+                    <span>🗑️</span> Clear Database
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <main class="container main-section">
+        <!-- Top KPI Summary Cards -->
+        <div class="kpi-grid">
+            <div class="card kpi-card">
+                <span class="kpi-label">Total Detections</span>
+                <div class="kpi-value" id="kpi-total">{{ stats.total_detections }}</div>
+                <span class="kpi-sub">All-time items classified</span>
+            </div>
+
+            <div class="card kpi-card">
+                <span class="kpi-label">Today's Detections</span>
+                <div class="kpi-value" id="kpi-today">{{ stats.today_detections }}</div>
+                <span class="kpi-sub">Recorded since midnight</span>
+            </div>
+
+            <div class="card kpi-card">
+                <span class="kpi-label">Most Frequent Waste</span>
+                <div class="kpi-value kpi-highlight" id="kpi-top-category">{{ stats.most_frequent_category }}</div>
+                <span class="kpi-sub"><strong id="kpi-top-count">{{ stats.most_frequent_count }}</strong> items recorded</span>
+            </div>
+
+            <div class="card kpi-card">
+                <span class="kpi-label">AI Inference Mode</span>
+                <div class="kpi-value kpi-mode">{% if model_info.is_demo_mode %}Demo Fallback{% else %}MobileNetV2 CNN{% endif %}</div>
+                <span class="kpi-sub">{{ model_info.framework }}</span>
+            </div>
+        </div>
+
+        <!-- Charts & Category Breakdown Row -->
+        <div class="analytics-charts-grid">
+            <!-- Left: Horizontal Bar Distribution Chart -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">📊</span>
+                        <h3>Category Distribution</h3>
+                    </div>
+                    <span class="badge badge-neutral" id="chart-total-badge">{{ stats.total_detections }} Total</span>
+                </div>
+
+                <div class="distribution-bars" id="analytics-dist-bars">
+                    {% for rule in waste_rules %}
+                    {% set cat_dist = stats.distribution.get(rule.category, {'count': 0, 'percentage': 0.0}) %}
+                    <div class="dist-bar-item" data-category="{{ rule.category }}">
+                        <div class="dist-bar-meta">
+                            <span class="dist-cat-name">
+                                <span class="dist-icon">{{ rule.icon }}</span>
+                                <strong>{{ rule.category }}</strong>
+                                <small class="dist-bin-tag">→ {{ rule.bin_short }}</small>
+                            </span>
+                            <span class="dist-numbers">
+                                <strong id="dist-count-{{ rule.category|replace(' ', '-') }}">{{ cat_dist.count }}</strong> items
+                                (<span id="dist-pct-{{ rule.category|replace(' ', '-') }}">{{ cat_dist.percentage }}%</span>)
+                            </span>
+                        </div>
+                        <div class="dist-track">
+                            <div class="dist-fill"
+                                 id="dist-fill-{{ rule.category|replace(' ', '-') }}"
+                                 style="width: {{ cat_dist.percentage }}%; background-color: {{ rule.bin_color }};">
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Right: Visual Doughnut Chart & Recycling Ratio -->
+            <div class="card chart-card">
+                <div class="card-header">
+                    <div class="card-title-group">
+                        <span class="card-icon">♻️</span>
+                        <h3>Composition & Recyclability</h3>
+                    </div>
+                    <span class="badge badge-success">Live Ratio</span>
+                </div>
+
+                <div class="doughnut-container">
+                    <div class="doughnut-ring" id="doughnut-ring">
+                        <div class="doughnut-hole">
+                            <span class="doughnut-big" id="doughnut-total">{{ stats.total_detections }}</span>
+                            <span class="doughnut-small">Items</span>
+                        </div>
+                    </div>
+
+                    <div class="doughnut-legend">
+                        {% for rule in waste_rules %}
+                        <div class="legend-item">
+                            <span class="legend-dot" style="background-color: {{ rule.bin_color }};"></span>
+                            <span class="legend-name">{{ rule.category }}</span>
+                            <strong class="legend-val" id="legend-val-{{ rule.category|replace(' ', '-') }}">
+                                {{ stats.category_counts.get(rule.category, 0) }}
+                            </strong>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <div class="recyclable-summary-box">
+                    <div>
+                        <strong>Recyclable & Compostable Share</strong>
+                        <p>Plastic, Paper, Metal, Glass, and Organic vs. General Waste</p>
+                    </div>
+                    <div class="recyclable-pct" id="recyclable-share-pct">{{ stats.recyclable_share_pct|default(0.0) }}%</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Category Counter Cards -->
+        <div class="stats-cards-grid" style="margin-bottom: 2rem;">
+            {% for rule in waste_rules %}
+            <div class="stat-card" style="--card-accent: {{ rule.bin_color }};">
+                <div class="stat-card-top">
+                    <span class="stat-title">{{ rule.category }}</span>
+                    <span class="stat-emoji">{{ rule.icon }}</span>
+                </div>
+                <div class="stat-value" id="analytics-card-{{ rule.category|replace(' ', '-') }}">
+                    {{ stats.category_counts.get(rule.category, 0) }}
+                </div>
+                <div class="stat-footer">
+                    <span>{{ rule.recommended_bin }}</span>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <!-- Full Recent Detections Table -->
+        <div class="card recent-table-card">
+            <div class="card-header">
+                <div class="card-title-group">
+                    <span class="card-icon">📋</span>
+                    <h3>Recent Detections History (SQLite)</h3>
+                </div>
+                <span class="badge badge-neutral" id="table-record-count">{{ recent_detections|length }} records shown</span>
+            </div>
+
+            <div class="table-responsive">
+                <table class="detections-table" id="analytics-detections-table">
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Timestamp</th>
+                            <th>Waste Type</th>
+                            <th>Confidence</th>
+                            <th>Recommended Bin</th>
+                        </tr>
+                    </thead>
+                    <tbody id="analytics-tbody">
+                        {% if recent_detections %}
+                            {% for item in recent_detections %}
+                            <tr>
+                                <td>#{{ item.id }}</td>
+                                <td class="td-time">{{ item.timestamp.replace('T', ' ') }}</td>
+                                <td><span class="category-pill" data-category="{{ item.waste_type }}">{{ item.waste_type }}</span></td>
+                                <td><strong>{{ item.confidence }}%</strong></td>
+                                <td>{{ item.recommended_bin }}</td>
+                            </tr>
+                            {% endfor %}
+                        {% else %}
+                            <tr>
+                                <td colspan="5" class="empty-table-msg">
+                                    No detections found in database. Go to the <a href="/">Live AI Scanner</a> to classify waste items!
+                                </td>
+                            </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container footer-content">
+            <div>
+                <strong>♻️ AI Smart Waste Management System</strong>
+                <p>Real-Time Waste Classification Using Deep Learning, FastAPI & SQLite.</p>
+            </div>
+            <div class="footer-links">
+                <a href="/">Live Scanner</a>
+                <a href="/analytics">Analytics</a>
+                <a href="/docs" target="_blank">Swagger API Docs</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="/static/js/analytics.js"></script>
+</body>
+</html>
